@@ -1,0 +1,135 @@
+---
+title: "NYC Racial Skews among Shooting Victims by Precinct"
+author: "Athena Kilgore"
+date: "2026-08-18"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(openxlsx) #if fails, run: install.packages("openxlsx",dependencies=TRUE)
+library(lubridate)
+silent_e<-read.csv("https://data.cityofnewyork.us/api/v3/views/833y-fsy8/export.csv")
+team_epic<-read.xlsx("https://s-media.nyc.gov/agencies/dcp/assets/files/excel/data-tools/population/american-community-survey/Dem_2024ACS5YR_NTA.xlsx")
+#This importing step is the basis for all further analysis. The shooting data is contained in silent_e, while the population data is in team_epic
+
+#Clean the shooting data by consolidating columns and converting dates
+silent_e$OCCUR_DATE<-paste(silent_e$OCCUR_DATE,silent_e$OCCUR_TIME)
+silent_e$PRECINCT<-paste("",silent_e$PRECINCT,sep="")
+silent_e$PRECINCT[nchar(silent_e$PRECINCT)==1]<-paste("0",silent_e$PRECINCT[nchar(silent_e$PRECINCT)==1],sep="")
+silent_e$PRECINCT<-paste(silent_e$BORO,silent_e$PRECINCT)
+silent_e$LOCATION_DESC<-paste(silent_e$LOC_CLASSFCTN_DESC,silent_e$LOCATION_DESC)
+columns_remaining=c(2:21)
+columns_remaining<-columns_remaining[!(columns_remaining%in%c(3,4,7,8,19,20))]
+#silent_e=silent_e[,columns_remaining] #Eliminating columns causes errors
+silent_e<-silent_e%>%full_join(silent_e)%>%mutate(OCCUR_DATE=mdy_hms(OCCUR_DATE))
+```
+
+## Introduction and Analysis
+
+NYPD population shooting statistics always include data on jurisdiction. While that's a byproduct of how policing is conducted, it provides us a convenient window into analyzing how the areas they police may differ from one another.
+
+First of all, dividing shooting data into boroughs shows:
+
+```{r pressure, echo=FALSE}
+ggplot(silent_e,aes(x=BORO))+geom_bar()+labs(x="Borough")
+```
+
+And if we incorporate the racial data of the victims (the perpetrator is often not known for specific incidents), then we can see the following:
+
+```{r pressur, echo=FALSE}
+ggplot(silent_e,aes(x=BORO,fill=VIC_RACE))+geom_bar(position="stack") +scale_fill_hue(labels=c("AMRIND","AAPI","BLACK","B HISP","U/K","WHITE","W HISP")) +labs(x="",y="")+theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+
+Here we can see that the racial distributions are already wildly out of step with what one can find online with respect to the 5 boroughs. The Bronx is predominantly black with a sizable white minority, Queens has the highest percentage of asians, Staten Island is overwhelmingly white, and though Manhattan is too, it's the crossroads of the city, so we might expect that it would have an above-average total and should roughly resemble the overall racial distribution. Instead what we see is a near-totalizing skew towards black victims, in incredibly pronounced fashion for mostly-white Brooklyn and even in supermajority-white Staten Island, with the only exception comically being the mostly-black Bronx. Notably, though policing is well-known to have an anti-black bias, this is from *victim* statistics; thus, this skewed data suggests a persistent tendency for gun-wielding murderers to target black individuals, likely only a fraction of whom are cops. What might be the causes of such an improbable imbalance? It is currently unclear, but we can narrow down the options by zooming in to a higher resolution.
+
+ \newpage
+
+By precinct, we can see where the effect is most pronounced:
+
+```{r precognition, echo=FALSE, fig.height=9}
+silent_e<-silent_e[order(silent_e$PRECINCT,decreasing=TRUE),]
+#Reorder the shooting data by precinct and create a horizontal barplot
+ggplot(silent_e,aes(y=PRECINCT,fill=VIC_RACE))+geom_bar(position="stack") +scale_fill_hue(labels=c("AMRIND","AAPI","BLACK","B HISP","u/k","WHITE","W HISP")) +labs(x="",y="")#+theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+
+Note that we can already spot which precincts have a more disproportionate slate of shooting victims as compared to their respective boroughs. The most egregious are Staten Island 120; precincts 101, 103, 105, and 113 from Queens; Mahattan 23, 25, 28, and 32; and the greatest number inside of Brooklyn: 63, 67, 69, 70, 71, 73, 75, 77, 79, and 81. Below, observe the staggering proportion of black shooting victims found by these precincts:
+
+```{r precognitio, echo=FALSE}
+#Obtain the count of each race for each precinct and compute proportion
+longV=table(silent_e$PRECINCT,silent_e$VIC_RACE)
+longT=longV/(longV[,1]+longV[,2]+longV[,3]+longV[,4]+longV[,5]+longV[,6]+longV[,7])
+egregious=c(16,18,20,21,22,24,25,27,29,30,49,51,52,55,59,61,63,71,74)
+toetull=0*longT[1,]
+for(station in egregious) #Compute the total among the outliers
+{
+  toetull=toetull+longT[station,]
+}
+pie(toetull) #Visualize the proportions of the total of proportions
+#Brooklyn60=r13, Manhattan1=r36, Queens100=r58, SI120=r73
+```
+
+We can see that for these precincts, black victims are truly in a league of their own as compared to all other races combined.
+
+By using the data collected by the NYC portion of the ACS, which is chunked into neighborhoods (specifically "neighborhood tabulation areas" or NTAs), we can compare the precinct data to the population demographics of the jurisdictional area of each precinct. In some cases, the NTA boundaries do not match up with the jurisdictional boundaries exactly, but the approximation is relatively close with the following mappings:
+
+```{r precogniti, echo=FALSE}
+appromat=matrix("",5,19)
+appromat[1,(1:19)]=c("SI 120th","QN 101st","QN 103rd","QN 105th","QN 114th","MN 23rd","MN 25th","MN 28th","MN 32nd","BK 63rd","BK 67th","BK 69th","BK 70th","BK 71st","BK 73rd","BK 75th","BK 77th","BK 79th","BK 81st")
+appromat[2,(1:19)]=c("SI0102+SI0103","QN1401","QN1201","QN1301","QN0101+QN0102","MN1101","MN1102","MN1001","MN1002","BK1802","BK1801","BK1803","BK1401","BK0901","BK1601","BK0503","BK0802","BK0301","BK0302")
+appromat[3,(1:17)]=c("SI0104+SI0105","QN1491","QN1202","QN1302","QN0103+QN0104","","MN1191","","","BK1891","","BK1893","BK1402","BK0902","BK1602","BK0504","BK0891")
+appromat[4,(1:16)]=c("SI0106+SI9561","","QN1206","QN1303","QN0105+QN0151","","","","","BK1892","","BK5692","BK1403","","","BK5693")
+appromat[5,(1:10)]=c("SI0191","","","QN1304","QN0191","","","","","BK5691")
+appromat
+```
+
+...from which we can derive the set of total and black populations by adding the constituent NTAs in each precinct approximation.
+
+```{r precognit, echo=FALSE}
+appromat=matrix(0,7,19) #usable version of prev table
+appromat[1,(1:19)]=c(183,179,166,172,123,118,119,116,117,89,88,90,76,62,82,52,61,46,47)
+appromat[2,(1:17)]=c(184,252,167,173,124,0,243,0,0,226,0,228,77,63,83,53,223)
+appromat[3,(1:16)]=c(185,0,171,174,125,0,0,0,0,227,0,231,78,0,0,232)
+appromat[4,(1:10)]=c(186,0,0,175,126,0,0,0,0,230)
+appromat[5,(1:5)]=c(187,0,0,0,127)
+appromat[6,(1:5)]=c(206,0,0,0,198)
+appromat[7,(1:5)]=c(258,0,0,0,247)
+popstats=matrix(0,2,19)
+for(p in (1:19)) #go through every column
+{
+  for(locat in appromat[,p]) #in each column, go through each excel row
+  {
+    if(locat==0){break} #if it's 0, we're done
+    popstats[1,p]<-popstats[1,p]+team_epic[locat,156] #add to the precinct t pop
+    popstats[2,p]<-popstats[2,p]+team_epic[locat,176] #add to the precinct b pop
+  }
+}
+```
+
+With this set of associations, we can record the difference between the proportions of black residents as part of the nonwhite population and shooting victims:
+
+```{r precogni, echo=FALSE}
+seals<-100*popstats[2,]/popstats[1,]
+#Black percentage of population^^
+victs<-100*longT[egregious,3]
+#Percentage of victims^^
+diffs=-seals #Establish the differences
+diffs[1]<-diffs[1]+victs[19]
+diffs[(2:5)]<-diffs[(2:5)]+victs[(15:18)]
+diffs[(6:9)]<-diffs[(6:9)]+victs[(11:14)]
+diffs[(10:19)]<-diffs[(10:19)]+victs[(1:10)]
+barplot(diffs,main="Difference in Proportion")
+```
+
+We can see here that not all of these figures are truly disproportionate. With the additional observation that there seem to be a vanishing number of white victims in the dataset, we can see the only truly extreme outlier precincts are the 120th, 105th, 113th, 63rd, 70th, and 79th, with the 101st and 103rd being arguable. It is notable that the 120th is the destination of a rather lengthy ferry, whose users are hard to predict. Also notable: the 101st, 113th, and 63rd are all noncentrally located around Jamaica Bay, which is similarly remote from the transit system; the 79th too is in an unserved pocket behind the navy yards. Only the 70th seems to buck the pattern, straddling two of Brooklyn's most popular metro lines.
+
+ \newpage
+ 
+## Conclusion
+
+In the end, we can see that some of these precincts genuinely do have mostly black resident populations. It is the remainder that are truly strange, but this represents a narrowing of the problem's scope sufficiently to begin opining about each case individually. The cases that are remote with respect to transit could easily have a substantial undercount of the homeless or undocumented populations, for example, both of whom are poor and thus disproportionately likely to be black. The 70th is the true oddball, stretching between two incredibly busy metro right-of-ways and being both relatively prosperous and widely-regarded. Checking the 70th precinct's webpage, one sees a precipious drop in crime since the period described in the dataset. Sadly, the only potential individual explanation one can find through research is the fact a 2020 BLM march occurred there and that any resulting anti-black targeting could be included in the scope of the dataset.
+
+It is tempting to draw the conclusion prematurely that black victims are simply the recipients of racist targeting in all cases. However, we should be mindful that black people are not the only race that is discriminated against, yet we see about as many hispanic and amerindian shooting victims as we would proportionally expect. Similarly, it may be tempting for some to say that black people are disproportionately likely to grow up in poorer circumstances, and that they would therefore be subject to muggings and gang violence. This too misses the obvious point that New York is a racially diverse center of wealth and cultural melting pot, where the usual trends of ethnic wealth are less likely to hold (for example, the relatively rich former mayor Adams). Instead, these two factors may have some ability to explain other factors (the relative absence of racially privileged non-hispanic white victims, and of disproportionately wealthy asian victims), but they should not be treated as a panaceic catch-all.
+
+Many of these precincts report black victims because that's generally who lives there, and it shouldn't be surprising that a black neighborhood would have black shooting victims when shootings happen. All of the rest have particular idiosyncrasies that better explain their situations than an overarching rule can, though larger trends can be helpful to fill in the gaps afterwards. It is notable that drawing patterned conclusions from scattered data may very well be the single most common bias there is, hardwired into our brains since prehistory, but when we break down the data, we can see that there is more than meets the eye.
